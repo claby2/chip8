@@ -53,25 +53,24 @@ impl Renderer {
     }
 
     pub fn render(&mut self, gfx: &mut Gfx, texture: &mut Texture) -> ChipResult<()> {
+        const PIXEL_SIZE: usize = 4;
         self.canvas.clear();
-        let mut pixel_data: [u8; chip::WIDTH * chip::HEIGHT * 4] =
-            [0; chip::WIDTH * chip::HEIGHT * 4];
+        let mut pixel_data: [u8; chip::WIDTH * chip::HEIGHT * PIXEL_SIZE] =
+            [0; chip::WIDTH * chip::HEIGHT * PIXEL_SIZE];
         let mut index: usize = 0;
         for pixel in gfx.as_mut() {
             if *pixel != 0 {
-                pixel_data[index] = 0xFF;
-                pixel_data[index + 1] = 0xFF;
-                pixel_data[index + 2] = 0xFF;
-                pixel_data[index + 3] = 0xFF;
+                for i in 0..PIXEL_SIZE {
+                    pixel_data[index + i] = 0xFF;
+                }
             } else {
-                pixel_data[index] = 0x00;
-                pixel_data[index + 1] = 0x00;
-                pixel_data[index + 2] = 0x00;
-                pixel_data[index + 3] = 0x00;
+                for i in 0..PIXEL_SIZE {
+                    pixel_data[index + i] = 0x00;
+                }
             }
             index += 4;
         }
-        texture.update(None, &pixel_data, chip::WIDTH * 4)?;
+        texture.update(None, &pixel_data, chip::WIDTH * PIXEL_SIZE)?;
         self.canvas.copy(&texture, None, None)?;
         self.canvas.present();
         Ok(())

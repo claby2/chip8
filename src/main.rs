@@ -6,11 +6,18 @@ mod renderer;
 use chip::Chip;
 use error::ChipResult;
 use renderer::Renderer;
-use std::env;
+use std::{
+    env,
+    fs::{self, File},
+    io::Read,
+};
 
 fn main() -> ChipResult<()> {
     let path = &env::args().collect::<Vec<String>>()[1];
-    let mut chip = Chip::initialize(path)?;
+    let mut file = File::open(&path)?;
+    let mut buffer = vec![0; fs::metadata(&path)?.len() as usize];
+    file.read_exact(&mut buffer)?;
+    let mut chip = Chip::new().load(&buffer)?;
     let mut renderer = Renderer::initialize(path)?;
     let texture_creator = renderer.canvas.texture_creator();
     let mut texture = texture_creator

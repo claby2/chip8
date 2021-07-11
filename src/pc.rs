@@ -12,9 +12,9 @@ impl Default for ProgramCounter {
 }
 
 impl ProgramCounter {
-    const DEFAULT_VALUE: u16 = 0x200;
-    const INCREMENT: u16 = 2;
-    const SKIP: u16 = Self::INCREMENT * 2;
+    pub const DEFAULT_VALUE: u16 = 0x200;
+    pub const INCREMENT: u16 = 2;
+    pub const SKIP: u16 = Self::INCREMENT * 2;
 
     pub fn value(&self) -> u16 {
         self.value
