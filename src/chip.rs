@@ -12,7 +12,9 @@ pub type Gfx = [u8; WIDTH * HEIGHT];
 const MEMORY_SIZE: usize = 0x1000;
 const REGISTER_SIZE: usize = 0x10;
 const STACK_SIZE: usize = 0x10;
-const KEY_SIZE: usize = 0x10;
+
+const KEYPAD_SIZE: usize = 0x10;
+pub type Keypad = [u8; KEYPAD_SIZE];
 
 const FONTSET: [u8; 80] = [
     0xF0, 0x90, 0x90, 0x90, 0xF0, // 0
@@ -48,7 +50,7 @@ pub struct Chip {
     sound_timer: u8,
     stack: [u16; STACK_SIZE],
     stack_pointer: usize,
-    key: [u8; KEY_SIZE],
+    keypad: Keypad,
     draw: bool,
     rng: ThreadRng,
 }
@@ -70,7 +72,7 @@ impl Chip {
             sound_timer: 0,
             stack: [0; STACK_SIZE],
             stack_pointer: 0,
-            key: [0; KEY_SIZE],
+            keypad: [0; KEYPAD_SIZE],
             draw: false,
             rng: rand::thread_rng(),
         }
@@ -86,8 +88,25 @@ impl Chip {
         self.gfx
     }
 
+    pub fn keypad(&mut self) -> &mut Keypad {
+        &mut self.keypad
+    }
+
     pub fn draw(&self) -> bool {
         self.draw
+    }
+
+    fn update_timer(&mut self) {
+        if self.delay_timer > 0 {
+            self.delay_timer -= 1;
+        }
+        if self.sound_timer > 0 {
+            self.sound_timer -= 1;
+        }
+    }
+
+    fn reset_keypad(&mut self) {
+        self.keypad = [0; KEYPAD_SIZE];
     }
 
     // Emulate a single cycle.
@@ -101,6 +120,7 @@ impl Chip {
             u16::from(self.memory[memory_index]) << 8 | u16::from(self.memory[memory_index + 1]);
         self.execute(self.opcode)?;
         self.update_timer();
+        self.reset_keypad();
         Ok(())
     }
 
@@ -340,13 +360,13 @@ impl Chip {
     fn op_ex9e(&mut self, x: usize) {
         // KeyOp. 0xEX9E, skip next instruction if the key in VX is pressed.
         self.program_counter
-            .skip_if(self.key[usize::from(self.v[x])] != 0);
+            .skip_if(self.keypad[usize::from(self.v[x])] != 0);
     }
 
     fn op_exa1(&mut self, x: usize) {
         // KeyOp. 0xEXA1, skip next instruction if the key in VX is not pressed.
         self.program_counter
-            .skip_if(self.key[usize::from(self.v[x])] == 0);
+            .skip_if(self.keypad[usize::from(self.v[x])] == 0);
     }
 
     fn op_fx07(&mut self, x: usize) {
@@ -357,7 +377,7 @@ impl Chip {
 
     fn op_fx0a(&mut self, x: usize) {
         // KeyOp. 0xFX0A, await key press and store in VX.
-        if let Some(key) = self.key.iter().position(|&key| key != 0_u8) {
+        if let Some(key) = self.keypad.iter().position(|&key| key != 0_u8) {
             self.v[x] = key as u8;
         } else {
             return;
@@ -415,21 +435,12 @@ impl Chip {
         self.index += x + 1;
         self.program_counter.increment();
     }
-
-    fn update_timer(&mut self) {
-        if self.delay_timer > 0 {
-            self.delay_timer -= 1;
-        }
-        if self.sound_timer > 0 {
-            self.sound_timer -= 1;
-        }
-    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::{
-        Chip, ChipError, ProgramCounter, HEIGHT, KEY_SIZE, REGISTER_SIZE, STACK_SIZE, WIDTH,
+        Chip, ChipError, ProgramCounter, HEIGHT, KEYPAD_SIZE, REGISTER_SIZE, STACK_SIZE, WIDTH,
     };
 
     const PC_START: u16 = ProgramCounter::DEFAULT_VALUE;
@@ -464,7 +475,7 @@ mod tests {
         assert_eq!(chip.stack_pointer, 0);
         assert_eq!(chip.v, [0; REGISTER_SIZE]);
         assert_eq!(chip.stack, [0; STACK_SIZE]);
-        assert_eq!(chip.key, [0; KEY_SIZE]);
+        assert_eq!(chip.keypad, [0; KEYPAD_SIZE]);
     }
 
     #[test]
@@ -738,7 +749,7 @@ mod tests {
     fn chip_op_ex9e_skip() {
         let mut chip = Chip::new();
         let key: u8 = 2;
-        chip.key[usize::from(key)] = 1;
+        chip.keypad[usize::from(key)] = 1;
         chip.v[0] = key;
         chip.execute(0xE09E).unwrap();
         assert_eq!(chip.program_counter.value(), PC_SKIP);
@@ -748,7 +759,7 @@ mod tests {
     fn chip_op_ex9e_no_skip() {
         let mut chip = Chip::new();
         let key: u8 = 2;
-        chip.key[usize::from(key)] = 0;
+        chip.keypad[usize::from(key)] = 0;
         chip.v[0] = key;
         chip.execute(0xE09E).unwrap();
         assert_eq!(chip.program_counter.value(), PC_NEXT);
@@ -758,7 +769,7 @@ mod tests {
     fn chip_op_exa1_skip() {
         let mut chip = Chip::new();
         let key: u8 = 2;
-        chip.key[usize::from(key)] = 0;
+        chip.keypad[usize::from(key)] = 0;
         chip.v[0] = key;
         chip.execute(0xE0A1).unwrap();
         assert_eq!(chip.program_counter.value(), PC_SKIP);
@@ -768,7 +779,7 @@ mod tests {
     fn chip_op_exa1_no_skip() {
         let mut chip = Chip::new();
         let key: u8 = 2;
-        chip.key[usize::from(key)] = 1;
+        chip.keypad[usize::from(key)] = 1;
         chip.v[0] = key;
         chip.execute(0xE0A1).unwrap();
         assert_eq!(chip.program_counter.value(), PC_NEXT);
@@ -787,7 +798,7 @@ mod tests {
     fn chip_op_fx0a_key() {
         let mut chip = Chip::new();
         let key: u8 = 2;
-        chip.key[usize::from(key)] = 1;
+        chip.keypad[usize::from(key)] = 1;
         chip.execute(0xF00A).unwrap();
         assert_eq!(chip.v[0], key);
         assert_eq!(chip.program_counter.value(), PC_NEXT);

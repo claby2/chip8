@@ -10,7 +10,11 @@ use std::{
     env,
     fs::{self, File},
     io::Read,
+    thread,
+    time::Duration,
 };
+
+const DELAY: u64 = 2;
 
 fn main() -> ChipResult<()> {
     let path = &env::args().collect::<Vec<String>>()[1];
@@ -28,13 +32,15 @@ fn main() -> ChipResult<()> {
         )
         .unwrap();
     loop {
-        if renderer.has_quit() {
+        if renderer.quit() {
             break;
         }
+        renderer.process_event(chip.keypad());
         chip.cycle()?;
         if chip.draw() {
             renderer.render(&mut chip.gfx(), &mut texture)?;
         }
+        thread::sleep(Duration::from_millis(DELAY));
     }
     Ok(())
 }
