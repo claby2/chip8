@@ -1,7 +1,9 @@
-mod chip;
+#[macro_use]
 mod error;
+mod chip;
 mod pc;
 mod renderer;
+mod stack;
 
 use chip::Chip;
 use error::ChipResult;

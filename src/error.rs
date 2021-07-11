@@ -12,6 +12,7 @@ pub enum ChipError {
     IntegerOr(IntegerOrSdlError),
     UpdateTexture(UpdateTextureError),
     UnknownOpcode(u16),
+    StackOperation(String),
     Other(String),
 }
 
@@ -23,6 +24,7 @@ impl Display for ChipError {
             IntegerOr(ref e) => e.fmt(f),
             UpdateTexture(ref e) => e.fmt(f),
             UnknownOpcode(ref o) => write!(f, "Unknown opcode: {:#02x}", o),
+            StackOperation(ref s) => f.write_str(s.as_str()),
             Other(ref s) => f.write_str(s.as_str()),
         }
     }
@@ -49,5 +51,15 @@ impl From<UpdateTextureError> for ChipError {
 impl From<String> for ChipError {
     fn from(err: String) -> ChipError {
         ChipError::Other(err)
+    }
+}
+
+#[cfg(test)]
+macro_rules! assert_err {
+    ($expression:expr, $($pattern:tt)+) => {
+        match $expression {
+            $($pattern)+ => (),
+            ref e => panic!("expected `{}` but got `{:?}`", stringify!($($pattern)+), e),
+        }
     }
 }

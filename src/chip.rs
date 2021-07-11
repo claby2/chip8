@@ -1,6 +1,7 @@
 use crate::{
     error::{ChipError, ChipResult},
     pc::ProgramCounter,
+    stack::Stack,
 };
 use rand::{rngs::ThreadRng, Rng};
 
@@ -9,9 +10,9 @@ pub const WIDTH: usize = 64;
 pub const HEIGHT: usize = 32;
 pub type Gfx = [u8; WIDTH * HEIGHT];
 
+const STACK_SIZE: usize = 0x10;
 const MEMORY_SIZE: usize = 0x1000;
 const REGISTER_SIZE: usize = 0x10;
-const STACK_SIZE: usize = 0x10;
 
 const KEYPAD_SIZE: usize = 0x10;
 pub type Keypad = [u8; KEYPAD_SIZE];
@@ -48,8 +49,7 @@ pub struct Chip {
     gfx: Gfx,
     delay_timer: u8,
     sound_timer: u8,
-    stack: [u16; STACK_SIZE],
-    stack_pointer: usize,
+    stack: Stack<u16, STACK_SIZE>,
     keypad: Keypad,
     draw: bool,
     rng: ThreadRng,
@@ -70,8 +70,7 @@ impl Chip {
             gfx: [0; WIDTH * HEIGHT],
             delay_timer: 0,
             sound_timer: 0,
-            stack: [0; STACK_SIZE],
-            stack_pointer: 0,
+            stack: Stack::default(),
             keypad: [0; KEYPAD_SIZE],
             draw: false,
             rng: rand::thread_rng(),
@@ -135,11 +134,11 @@ impl Chip {
         match opcode & 0xF000 {
             0x0000 => match opcode & 0x00FF {
                 0x00E0 => self.op_00e0(),
-                0x00EE => self.op_00ee(),
+                0x00EE => self.op_00ee()?,
                 _ => return Err(ChipError::UnknownOpcode(opcode)),
             },
             0x1000 => self.op_1nnn(nnn),
-            0x2000 => self.op_2nnn(nnn),
+            0x2000 => self.op_2nnn(nnn)?,
             0x3000 => self.op_3xnn(x, nn),
             0x4000 => self.op_4xnn(x, nn),
             0x5000 => self.op_5xy0(x, y),
@@ -180,7 +179,7 @@ impl Chip {
                 _ => return Err(ChipError::UnknownOpcode(opcode)),
             },
             _ => return Err(ChipError::UnknownOpcode(opcode)),
-        }
+        };
         Ok(())
     }
 
@@ -193,10 +192,10 @@ impl Chip {
         self.program_counter.increment();
     }
 
-    fn op_00ee(&mut self) {
+    fn op_00ee(&mut self) -> ChipResult<()> {
         // Flow. Return from subroutine.
-        self.stack_pointer -= 1;
-        self.program_counter.set(self.stack[self.stack_pointer]);
+        self.program_counter.set(self.stack.pop()?);
+        Ok(())
     }
 
     fn op_1nnn(&mut self, nnn: u16) {
@@ -204,13 +203,14 @@ impl Chip {
         self.program_counter.set(nnn);
     }
 
-    fn op_2nnn(&mut self, nnn: u16) {
+    fn op_2nnn(&mut self, nnn: u16) -> ChipResult<()> {
         // Flow. 0x2NNN, calls subroutine at NNN.
         // Temporarily jump to address NNN, store program counter in stack and increment
         // stack pointer to prevent overwriting it.
-        self.stack[self.stack_pointer] = self.program_counter.value() + ProgramCounter::INCREMENT;
-        self.stack_pointer += 1;
+        self.stack
+            .push(self.program_counter.value() + ProgramCounter::INCREMENT)?;
         self.program_counter.set(nnn);
+        Ok(())
     }
 
     fn op_3xnn(&mut self, x: usize, nn: u8) {
@@ -439,22 +439,11 @@ impl Chip {
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        Chip, ChipError, ProgramCounter, HEIGHT, KEYPAD_SIZE, REGISTER_SIZE, STACK_SIZE, WIDTH,
-    };
+    use super::{Chip, ChipError, ProgramCounter, HEIGHT, KEYPAD_SIZE, REGISTER_SIZE, WIDTH};
 
     const PC_START: u16 = ProgramCounter::DEFAULT_VALUE;
     const PC_NEXT: u16 = ProgramCounter::DEFAULT_VALUE + ProgramCounter::INCREMENT;
     const PC_SKIP: u16 = ProgramCounter::DEFAULT_VALUE + ProgramCounter::SKIP;
-
-    macro_rules! assert_err {
-        ($expression:expr, $($pattern:tt)+) => {
-            match $expression {
-                $($pattern)+ => (),
-                ref e => panic!("expected `{}` but got `{:?}`", stringify!($($pattern)+), e),
-            }
-        }
-    }
 
     // Utility assertion function to ensure correctness of math operation.
     #[track_caller]
@@ -472,9 +461,8 @@ mod tests {
     fn chip_new() {
         let chip = Chip::new();
         assert_eq!(chip.program_counter.value(), PC_START);
-        assert_eq!(chip.stack_pointer, 0);
         assert_eq!(chip.v, [0; REGISTER_SIZE]);
-        assert_eq!(chip.stack, [0; STACK_SIZE]);
+        assert!(chip.stack.is_empty());
         assert_eq!(chip.keypad, [0; KEYPAD_SIZE]);
     }
 
@@ -508,10 +496,8 @@ mod tests {
     #[test]
     fn chip_op_00ee() {
         let mut chip = Chip::new();
-        chip.stack_pointer = 5;
-        chip.stack[4] = 0x2222;
+        chip.stack.push(0x2222).unwrap();
         chip.execute(0x00ee).unwrap();
-        assert_eq!(chip.stack_pointer, 4);
         assert_eq!(chip.program_counter.value(), 0x2222);
     }
 
@@ -527,7 +513,6 @@ mod tests {
         let mut chip = Chip::new();
         chip.execute(0x2222).unwrap();
         assert_eq!(chip.program_counter.value(), 0x0222);
-        assert_eq!(chip.stack_pointer, 1);
         assert_eq!(chip.stack[0], PC_NEXT);
     }
 
